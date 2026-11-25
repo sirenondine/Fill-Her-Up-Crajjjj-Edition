@@ -3637,18 +3637,25 @@ int Function ResolvePool(Actor akReceiver, Actor akGiver, int tagPool, bool ppa)
 		return tagPool
 	EndIf
 	String who = akReceiver.GetLeveledActorBase().GetName()
+	; SexLab orgasm events can reach us long after the orgasm when Papyrus is busy, so a
+	; known partner gets a wide window (the pair's latest site is still theirs); "any
+	; partner" stays short so an older scene with someone else doesn't leak in
+	float maxAge = 30.0
+	If akGiver
+		maxAge = 300.0
+	EndIf
 	int site
 	If akGiver
-		site = PPABridge.GetLastSite(akReceiver, akGiver, 10.0)
+		site = PPABridge.GetLastSite(akReceiver, akGiver, maxAge)
 	Else
-		site = PPABridge.GetSiteMask(akReceiver, None, 10.0)
+		site = PPABridge.GetSiteMask(akReceiver, None, 30.0)
 	EndIf
 	int pool = PPASiteToPool(site)
 	If pool
 		Debug.Trace("[FillHerUp] " + who + ": PPA confirmed site " + site + " -> pool " + pool + " (tags " + tagPool + ")")
 		return pool
 	EndIf
-	int assigned = PPABridge.GetAssignedSite(akReceiver, akGiver, 30.0)
+	int assigned = PPABridge.GetAssignedSite(akReceiver, akGiver, maxAge)
 	pool = PPASiteToPool(assigned)
 	If pool
 		Debug.Trace("[FillHerUp] " + who + ": PPA assigned site " + assigned + " -> pool " + pool + " (tags " + tagPool + ")")
