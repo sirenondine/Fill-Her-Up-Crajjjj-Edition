@@ -618,22 +618,9 @@ event FHUSexlabEnd(int tid, bool HasPlayer)
 	elseif anim.hasTag("Anal")
 		endPool = ANAL
 	endif
-	; the last site PPA confirmed in the victim (within the scene's last minute) beats the tags
+	; PPA's site in the victim from this scene's partners beats the tags
 	bool ppa = PPAAvailable()
-	int site = 0
-	If ppa
-		site = PPABridge.GetLastSite(Victim, None, 60.0)
-		If !Math.LogicalAnd(site, 6)
-			site = PPABridge.GetAssignedSite(Victim, None, 60.0)
-		EndIf
-	EndIf
-	If Math.LogicalAnd(site, 4)
-		endPool = VAGINAL
-	ElseIf Math.LogicalAnd(site, 2)
-		endPool = ANAL
-	ElseIf endPool
-		endPool = ResolvePool(Victim, None, endPool, ppa)
-	EndIf
+	endPool = ResolvePool(Victim, None, actors, endPool, ppa)
 	if Math.LogicalAnd(endPool, VAGINAL);Do I need both vaginal and anal case?
 		injectorstring = "sr.inflater.injector"
 		iinjector = 1
@@ -811,7 +798,7 @@ Event OrgasmSeparate(Form ActorRef, Int Thread)
 		;	log(anim.name + " - cumSpot for position " + i + ": " + cumSpot)
 			int pool = 0
 			If akActor != actors[i]
-				pool = ResolvePool(actors[i], akActor, currentPool, ppa)
+				pool = ResolvePool(actors[i], akActor, actors, currentPool, ppa)
 			EndIf
 			If pool
 				If ((actorGender == 1 && config.femaleEnabled) || (actorGender == 0 && config.maleEnabled)) && cumSpot != -1; && cumSpot != 2
@@ -891,7 +878,7 @@ Event Orgasm(int thread, bool hasPlayer)
 			i -= 1
 			int cumSpot = anim.GetCum(i)
 			int actorGender = sexlab.GetGender(actors[i])
-			int pool = ResolvePool(actors[i], None, currentPool, ppa)
+			int pool = ResolvePool(actors[i], None, actors, currentPool, ppa)
 		;	log(anim.name + " - cumSpot for position " + i + ": " + cumSpot)
 			If pool && ((actorGender == 1 && config.femaleEnabled) || (actorGender == 0 && config.maleEnabled)) && cumSpot != -1; && cumSpot != 2
 				; only inflate if the actor is female (or male pretending to be female!) and the animation position has cum effect set for something else than oral only
@@ -3632,39 +3619,56 @@ EndFunction
 ; 2. the hole PPA has assigned (its menu or tag choice), confirmed or not
 ; 3. PPA's FutasUseAnus rule: a SexLab P+ futa's "vaginal" is anal
 ; 4. the tags
-int Function ResolvePool(Actor akReceiver, Actor akGiver, int tagPool, bool ppa)
+int Function ResolvePool(Actor akReceiver, Actor akGiver, Actor[] akSceneActors, int tagPool, bool ppa)
 	If !ppa
 		return tagPool
 	EndIf
 	String who = akReceiver.GetLeveledActorBase().GetName()
-	; SexLab orgasm events can reach us long after the orgasm when Papyrus is busy, so a
-	; known partner gets a wide window (the pair's latest site is still theirs); "any
-	; partner" stays short so an older scene with someone else doesn't leak in
-	float maxAge = 30.0
-	If akGiver
-		maxAge = 300.0
-	EndIf
-	int site
+	; SexLab orgasm/end events can reach us minutes late when this script is busy
+	; inflating someone, so look back far - but only at this scene's own partners
+	; (the giver when known, else every other actor in the scene), so an older scene
+	; with someone else can't leak in
+	float maxAge = 300.0
+	int site = 0
+	int assigned = 0
 	If akGiver
 		site = PPABridge.GetLastSite(akReceiver, akGiver, maxAge)
+		assigned = PPABridge.GetAssignedSite(akReceiver, akGiver, maxAge)
 	Else
-		site = PPABridge.GetSiteMask(akReceiver, None, 30.0)
+		int j = akSceneActors.Length
+		While j > 0
+			j -= 1
+			Actor partner = akSceneActors[j]
+			If partner && partner != akReceiver
+				site = Math.LogicalOr(site, PPABridge.GetLastSite(akReceiver, partner, maxAge))
+				assigned = Math.LogicalOr(assigned, PPABridge.GetAssignedSite(akReceiver, partner, maxAge))
+			EndIf
+		EndWhile
 	EndIf
 	int pool = PPASiteToPool(site)
 	If pool
 		Debug.Trace("[FillHerUp] " + who + ": PPA confirmed site " + site + " -> pool " + pool + " (tags " + tagPool + ")")
 		return pool
 	EndIf
-	int assigned = PPABridge.GetAssignedSite(akReceiver, akGiver, maxAge)
 	pool = PPASiteToPool(assigned)
 	If pool
 		Debug.Trace("[FillHerUp] " + who + ": PPA assigned site " + assigned + " -> pool " + pool + " (tags " + tagPool + ")")
 		return pool
 	EndIf
-	If Math.LogicalAnd(tagPool, VAGINAL) && PPABridge.FutasUseAnus() && IsFuta(akReceiver)
-		pool = Math.LogicalOr(tagPool - VAGINAL, ANAL)
-		Debug.Trace("[FillHerUp] " + who + ": futa, vaginal read as anal (PPA FutasUseAnus) -> pool " + pool)
-		return pool
+	If Math.LogicalAnd(tagPool, VAGINAL)
+		; PPA never touched this scene (some creatures). If, in the last 10 minutes, PPA
+		; has put partners in this receiver's anus but never her vagina, she has none
+		int history = PPABridge.GetSiteMask(akReceiver, None, 600.0)
+		If Math.LogicalAnd(history, 2) && !Math.LogicalAnd(history, 4)
+			pool = Math.LogicalOr(tagPool - VAGINAL, ANAL)
+			Debug.Trace("[FillHerUp] " + who + ": no PPA data for this scene, recent PPA history anal-only (" + history + "), vaginal read as anal -> pool " + pool)
+			return pool
+		EndIf
+		If PPABridge.FutasUseAnus() && IsFuta(akReceiver)
+			pool = Math.LogicalOr(tagPool - VAGINAL, ANAL)
+			Debug.Trace("[FillHerUp] " + who + ": futa, vaginal read as anal (PPA FutasUseAnus) -> pool " + pool)
+			return pool
+		EndIf
 	EndIf
 	Debug.Trace("[FillHerUp] " + who + ": nothing from PPA (site " + site + ", assigned " + assigned + "), tags -> pool " + tagPool)
 	return tagPool
