@@ -623,6 +623,9 @@ event FHUSexlabEnd(int tid, bool HasPlayer)
 	int site = 0
 	If ppa
 		site = PPABridge.GetLastSite(Victim, None, 60.0)
+		If !Math.LogicalAnd(site, 6)
+			site = PPABridge.GetAssignedSite(Victim, None, 60.0)
+		EndIf
 	EndIf
 	If Math.LogicalAnd(site, 4)
 		endPool = VAGINAL
@@ -3607,22 +3610,8 @@ bool Function IsFuta(Actor a)
 	return SKSE.GetPluginVersion("SexLabUtil") > 0 && SexLabRegistry.GetSex(a, false) == 2
 EndFunction
 
-; The pools to fill in akReceiver. akGiver None = any partner. tagPool is what the
-; animation tags say. PPA's confirmed site wins when it has one (the tags cannot know
-; that a vaginaless body was taken anally). With nothing confirmed, follow PPA's
-; FutasUseAnus rule: a futa receiver's "vaginal" is anal.
-int Function ResolvePool(Actor akReceiver, Actor akGiver, int tagPool, bool ppa)
-	If !ppa
-		return tagPool
-	EndIf
-	; 1 mouth, 2 anus, 4 vagina, 6 both. One giver: where it was last. Any partner: every
-	; site confirmed in the last 10s (several partners can be in different holes).
-	int site
-	If akGiver
-		site = PPABridge.GetLastSite(akReceiver, akGiver, 10.0)
-	Else
-		site = PPABridge.GetSiteMask(akReceiver, None, 10.0)
-	EndIf
+; PPA site bits (1 mouth, 2 anus, 4 vagina, 6 both) to FHU pool bits.
+int Function PPASiteToPool(int site)
 	int pool = 0
 	If Math.LogicalAnd(site, 4)
 		pool = Math.LogicalOr(pool, VAGINAL)
@@ -3633,15 +3622,44 @@ int Function ResolvePool(Actor akReceiver, Actor akGiver, int tagPool, bool ppa)
 	If Math.LogicalAnd(site, 1)
 		pool = Math.LogicalOr(pool, ORAL)
 	EndIf
+	return pool
+EndFunction
+
+; The pools to fill in akReceiver. akGiver None = any partner. tagPool is what the
+; animation tags say, which cannot know that a vaginaless body is taken anally. In order:
+; 1. the site PPA physically confirmed (one giver: where it was last; any partner: every
+;    site confirmed in the last 10s, since several partners can be in different holes)
+; 2. the hole PPA has assigned (its menu or tag choice), confirmed or not
+; 3. PPA's FutasUseAnus rule: a SexLab P+ futa's "vaginal" is anal
+; 4. the tags
+int Function ResolvePool(Actor akReceiver, Actor akGiver, int tagPool, bool ppa)
+	If !ppa
+		return tagPool
+	EndIf
+	String who = akReceiver.GetLeveledActorBase().GetName()
+	int site
+	If akGiver
+		site = PPABridge.GetLastSite(akReceiver, akGiver, 10.0)
+	Else
+		site = PPABridge.GetSiteMask(akReceiver, None, 10.0)
+	EndIf
+	int pool = PPASiteToPool(site)
 	If pool
-		log(akReceiver.GetLeveledActorBase().GetName() + ": PPA confirmed site " + site + ", pool " + pool + " (tags: " + tagPool + ")")
+		Debug.Trace("[FillHerUp] " + who + ": PPA confirmed site " + site + " -> pool " + pool + " (tags " + tagPool + ")")
+		return pool
+	EndIf
+	int assigned = PPABridge.GetAssignedSite(akReceiver, akGiver, 30.0)
+	pool = PPASiteToPool(assigned)
+	If pool
+		Debug.Trace("[FillHerUp] " + who + ": PPA assigned site " + assigned + " -> pool " + pool + " (tags " + tagPool + ")")
 		return pool
 	EndIf
 	If Math.LogicalAnd(tagPool, VAGINAL) && PPABridge.FutasUseAnus() && IsFuta(akReceiver)
 		pool = Math.LogicalOr(tagPool - VAGINAL, ANAL)
-		log(akReceiver.GetLeveledActorBase().GetName() + ": futa, vaginal read as anal (PPA FutasUseAnus), pool " + pool)
+		Debug.Trace("[FillHerUp] " + who + ": futa, vaginal read as anal (PPA FutasUseAnus) -> pool " + pool)
 		return pool
 	EndIf
+	Debug.Trace("[FillHerUp] " + who + ": nothing from PPA (site " + site + ", assigned " + assigned + "), tags -> pool " + tagPool)
 	return tagPool
 EndFunction
 

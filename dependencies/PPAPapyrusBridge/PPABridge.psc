@@ -16,3 +16,8 @@ int Function GetLastSite(Actor akReceiver, Actor akPartner, float afMaxAge) glob
 
 ; Every site confirmed within afMaxAge real seconds, as a mask of the bits above
 int Function GetSiteMask(Actor akReceiver, Actor akPartner, float afMaxAge) global native
+
+; PPA's assigned target of akPartner (None = mask over every partner) in akReceiver, seen within
+; afMaxAge real seconds: the hole chosen by PPA's menu or animation tags, whether or not physics has
+; confirmed contact yet. Same bits as above; 0 when none, or when PPA picks automatically.
+int Function GetAssignedSite(Actor akReceiver, Actor akPartner, float afMaxAge) global native
