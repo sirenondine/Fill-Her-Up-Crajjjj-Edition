@@ -1,5 +1,7 @@
 Scriptname sr_inflateConfig extends SKI_ConfigBase
 
+int mcmhAutoState  ; mcm-helper-patchhub auto-load: 0 old save, 1 new game, 2 done
+
 sr_infPlayer property infPlayer auto
 
 sr_inflateQuest Property inflater auto
@@ -469,6 +471,7 @@ Event OnGameReload()
 	VerifyMods()
 	PageReset()
 	RegisterForSingleUpdate(1.0)
+	MCMHKickAutoSync()
 EndEvent
 
 Event OnUpdate()
@@ -499,6 +502,7 @@ Function closeMCM()
 EndFunction
 
 Event OnConfigInit()
+	mcmhAutoState = 1
 	parent.OnConfigInit()
 	PageReset()
 EndEvent
@@ -2171,6 +2175,7 @@ Event OnConfigClose()
 	ApplyConfig()
 	inflater.maintenance()
 	IsConfigOpened = false
+	MCMHAutoExport()
 EndEvent
 
 Function DebugDeflate(Actor akActor)
@@ -2510,4 +2515,79 @@ bool Function LoadUserConfig()
 	ApplyConfig()
 	ForcePageReset()
 	return true
+EndFunction
+
+; ---------------------------------------------------------------- mcm-helper-patchhub auto-load
+
+Function MCMHKickAutoSync()
+	If mcmhAutoState != 2
+		RegisterForModEvent("MCMHAutoSync_sr_inflateConfig", "OnMCMHAutoSync")
+		SendModEvent("MCMHAutoSync_sr_inflateConfig")  ; delivered later on a fresh, ordinary stack
+	EndIf
+EndFunction
+
+Event OnMCMHAutoSync(string a_eventName, string a_strArg, float a_numArg, Form a_sender)
+	UnregisterForModEvent("MCMHAutoSync_sr_inflateConfig")
+	MCMHAutoSync()
+EndEvent
+
+Function MCMHAutoSync()
+	If mcmhAutoState == 2
+		Return
+	EndIf
+	int pending = mcmhAutoState
+	mcmhAutoState = 2
+	Utility.Wait(10.0)  ; unpaused seconds: lets the mod finish its own setup first
+	If pending == 1 && (JsonUtil.JsonExists(userSettingsFile))
+		MCMHAutoImport()
+	Else
+		MCMHAutoExport()
+	EndIf
+EndFunction
+
+; Silent wrappers around the mod's own SaveUserConfig()/LoadUserConfig() (FillHerUp/UserSettings.json).
+; Their only prompts are error-path ShowMessage calls; the guards below keep those paths unreachable
+; (except a JsonUtil.Save write failure on export).
+Function MCMHAutoExport()
+	If JsonUtil.JsonExists(userSettingsFile) && JsonUtil.IsPendingSave(userSettingsFile)
+		Return
+	EndIf
+	SaveUserConfig()
+EndFunction
+
+Function MCMHAutoImport()
+	; new game: OnVersionUpdate queues resetConfig (SetDefaults + default race amounts) for OnUpdate;
+	; wait for it so the defaults don't overwrite the imported values
+	int tick = 0
+	While (pendingReset || inflater.GetState() == "maintenance") && tick < 60
+		Utility.Wait(1.0)
+		tick += 1
+	EndWhile
+	If !(JsonUtil.Load(userSettingsFile) && JsonUtil.IsGood(userSettingsFile))
+		Return
+	EndIf
+	If !LoadUserConfig()  ; does ApplyConfig() (morph strings, SLIF global, CI flag, RegisterKeys) itself
+		Return
+	EndIf
+	; globals the menu options set alongside the imported values (LoadUserConfig leaves them stale)
+	sr_SendingSpermDataChance.SetValue(SendeventChance)
+	sr_ExpelFaliure.SetValue(Deflatechance)
+	sr_MoanSound.SetValue(MoanSound as int)
+	sr_SexlabMoanSound.SetValue(SexlabMoanSound as int)
+	If npcComments
+		sr_inflatedCommentChance.SetValueInt(26)
+	Else
+		sr_inflatedCommentChance.SetValueInt(0)
+	EndIf
+	If followerComments
+		sr_followerCommentChance.SetValueInt(26)
+	Else
+		sr_followerCommentChance.SetValueInt(0)
+	EndIf
+	If statusMsg
+		dialogue.DoRegister()
+	Else
+		dialogue.StopMessages()
+	EndIf
+	inflater.maintenance()  ; what OnConfigClose runs after a manual Load
 EndFunction
