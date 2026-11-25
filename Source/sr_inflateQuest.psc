@@ -612,10 +612,29 @@ event FHUSexlabEnd(int tid, bool HasPlayer)
 	log("Fill her up sex end")
 	int iinjector = 0
 	String injectorstring = ""
-	if anim.hasTag("Vaginal");Do I need both vaginal and anal case?
+	int endPool = 0
+	if anim.hasTag("Vaginal")
+		endPool = VAGINAL
+	elseif anim.hasTag("Anal")
+		endPool = ANAL
+	endif
+	; what PPA confirmed in the victim over the scene's last minute beats the tags
+	bool ppa = PPAAvailable()
+	int site = 0
+	If ppa
+		site = PPABridge.GetSiteMask(Victim, None, 60.0)
+	EndIf
+	If Math.LogicalAnd(site, 4)
+		endPool = VAGINAL
+	ElseIf Math.LogicalAnd(site, 2)
+		endPool = ANAL
+	ElseIf endPool
+		endPool = ResolvePool(Victim, None, endPool, ppa)
+	EndIf
+	if Math.LogicalAnd(endPool, VAGINAL);Do I need both vaginal and anal case?
 		injectorstring = "sr.inflater.injector"
 		iinjector = 1
-	elseif anim.hasTag("Anal")
+	elseif Math.LogicalAnd(endPool, ANAL)
 		injectorstring = "sr.inflater.analinjector"
 		iinjector = 2
 	endif
@@ -751,27 +770,29 @@ Event OrgasmSeparate(Form ActorRef, Int Thread)
 		inflateTrigger = legacyCondition
     endif
 
-	If inflateTrigger
+	; PPA can confirm a penetration the tags or Hentairim labels miss, so check per receiver
+	bool ppa = PPAAvailable()
+	If inflateTrigger || ppa
 		If (!IsFFCumAllowed() && sexlab.MaleCount(actors) < 1 && sexlab.CreatureCount(actors) < 1)
 			return
 		EndIf
 		
 		int currentPool = 0
-		If anim.hasTag("Vaginal") && isVaginalInside
+		If inflateTrigger && anim.hasTag("Vaginal") && isVaginalInside
 			log(">>(SLSO) Vaginal penetration detected.")
 			currentPool = Math.LogicalOr(currentPool, VAGINAL)
 		EndIf
-		If anim.hasTag("Anal") && isAnalInside
+		If inflateTrigger && anim.hasTag("Anal") && isAnalInside
 			log(">>(SLSO) Anal penetration detected")
 			currentPool = Math.LogicalOr(currentPool, ANAL)
 		EndIf
-		If (anim.hasTag("Oral") || anim.hasTag("Blowjob")) && isOralInside
+		If inflateTrigger && (anim.hasTag("Oral") || anim.hasTag("Blowjob")) && isOralInside
 			log(">>(SLSO) Oral penetration detected")
 			currentPool = Math.LogicalOr(currentPool, ORAL)
 			;Debug.notification("Oral " + currentPool as int)
 		EndIf
 
-		If currentPool == 0
+		If currentPool == 0 && !ppa
 			return
 		EndIf
 		
@@ -785,19 +806,23 @@ Event OrgasmSeparate(Form ActorRef, Int Thread)
 			int cumSpot = anim.GetCum(i)
 			int actorGender = sexlab.GetGender(actors[i])
 		;	log(anim.name + " - cumSpot for position " + i + ": " + cumSpot)
+			int pool = 0
 			If akActor != actors[i]
+				pool = ResolvePool(actors[i], akActor, currentPool, ppa)
+			EndIf
+			If pool
 				If ((actorGender == 1 && config.femaleEnabled) || (actorGender == 0 && config.maleEnabled)) && cumSpot != -1; && cumSpot != 2
 					; only inflate if the actor is female (or male pretending to be female!) and the animation position has cum effect set for something else than oral only
 					If actors[i] == player && sr_CumEffectsEnabled.GetValueInt() > 0
 						dialogue.modMod(30)
 						currentActors = cumSource
-						currentType = currentPool
+						currentType = pool
 						RegisterForModEvent("fhu.playerInflated", "PlayerInflationDone")
 						callback = "fhu.playerInflated"
 					Else
 						callback = ""
 					EndIf
-						int tid = QueueActor(actors[i], true, currentPool, GetCumAmountForActor(actors[i], cumSource), 3.0, callback)
+						int tid = QueueActor(actors[i], true, pool, GetCumAmountForActor(actors[i], cumSource), 3.0, callback)
 						;sr_InjectorFormlist.addform(actors[i])
 						if tid < 0
 							warn("Inflaton slots full, skipping " + actors[i].GetLeveledActorBase().GetName() + "!")
@@ -836,7 +861,8 @@ Event Orgasm(int thread, bool hasPlayer)
 	log("Orgasm hook for thread " + thread + ": handling on the legacy path.")
 	Actor[] actors = sexlab.HookActors(thread)
 	sslBaseAnimation anim = sexlab.HookAnimation(thread)
-	If anim.hasTag("Vaginal") || anim.hasTag("Oral") || anim.hasTag("Anal") || anim.hasTag("Blowjob")
+	bool ppa = PPAAvailable()
+	If anim.hasTag("Vaginal") || anim.hasTag("Oral") || anim.hasTag("Anal") || anim.hasTag("Blowjob") || ppa
 		If ( !IsFFCumAllowed() && sexlab.MaleCount(actors) < 1 && sexlab.CreatureCount(actors) < 1)
 			return 
 		EndIf
@@ -862,19 +888,20 @@ Event Orgasm(int thread, bool hasPlayer)
 			i -= 1
 			int cumSpot = anim.GetCum(i)
 			int actorGender = sexlab.GetGender(actors[i])
+			int pool = ResolvePool(actors[i], None, currentPool, ppa)
 		;	log(anim.name + " - cumSpot for position " + i + ": " + cumSpot)
-			If ((actorGender == 1 && config.femaleEnabled) || (actorGender == 0 && config.maleEnabled)) && cumSpot != -1; && cumSpot != 2
+			If pool && ((actorGender == 1 && config.femaleEnabled) || (actorGender == 0 && config.maleEnabled)) && cumSpot != -1; && cumSpot != 2
 				; only inflate if the actor is female (or male pretending to be female!) and the animation position has cum effect set for something else than oral only
 				If actors[i] == player && sr_CumEffectsEnabled.GetValueInt() > 0
 					dialogue.modMod(30)
 					currentActors = actors
-					currentType = currentPool
+					currentType = pool
 					RegisterForModEvent("fhu.playerInflated", "PlayerInflationDone")
 					callback = "fhu.playerInflated"
 				Else
 					callback = ""
 				EndIf
-				int tid = QueueActor(actors[i], true, currentPool, GetCumAmountForActor(actors[i], actors), 3.0, callback)
+				int tid = QueueActor(actors[i], true, pool, GetCumAmountForActor(actors[i], actors), 3.0, callback)
 				if tid < 0
 					warn("Inflaton slots full, skipping " + actors[i].GetLeveledActorBase().GetName() + "!")
 				Else
@@ -3567,6 +3594,48 @@ EndFunction
 ; the AllowFFCum property but hides its MCM toggle, so honor FHU's own option too.
 bool Function IsFFCumAllowed()
 	return sexlab.config.AllowFFCum || config.allowFFCum
+EndFunction
+
+; Accurate Penetration (PPA) reports where a partner was physically confirmed inside a
+; receiver. PPA only has a C++ API; PPAPapyrusBridge.dll exposes it as PPABridge.
+bool Function PPAAvailable()
+	return SKSE.GetPluginVersion("PPAPapyrusBridge") > 0 && PPABridge.IsReady()
+EndFunction
+
+; SexLab P+ futa (sex 2). Legacy SexLab has no futa sex, so this is false there.
+bool Function IsFuta(Actor a)
+	return SKSE.GetPluginVersion("SexLabUtil") > 0 && SexLabRegistry.GetSex(a, false) == 2
+EndFunction
+
+; The pools to fill in akReceiver. akGiver None = any partner. tagPool is what the
+; animation tags say. PPA's confirmed site wins when it has one (the tags cannot know
+; that a vaginaless body was taken anally). With nothing confirmed, follow PPA's
+; FutasUseAnus rule: a futa receiver's "vaginal" is anal.
+int Function ResolvePool(Actor akReceiver, Actor akGiver, int tagPool, bool ppa)
+	If !ppa
+		return tagPool
+	EndIf
+	int site = PPABridge.GetLastSite(akReceiver, akGiver, 10.0) ; 1 mouth, 2 anus, 4 vagina, 6 both
+	int pool = 0
+	If Math.LogicalAnd(site, 4)
+		pool = Math.LogicalOr(pool, VAGINAL)
+	EndIf
+	If Math.LogicalAnd(site, 2)
+		pool = Math.LogicalOr(pool, ANAL)
+	EndIf
+	If Math.LogicalAnd(site, 1)
+		pool = Math.LogicalOr(pool, ORAL)
+	EndIf
+	If pool
+		log(akReceiver.GetLeveledActorBase().GetName() + ": PPA confirmed site " + site + ", pool " + pool + " (tags: " + tagPool + ")")
+		return pool
+	EndIf
+	If Math.LogicalAnd(tagPool, VAGINAL) && PPABridge.FutasUseAnus() && IsFuta(akReceiver)
+		pool = Math.LogicalOr(tagPool - VAGINAL, ANAL)
+		log(akReceiver.GetLeveledActorBase().GetName() + ": futa, vaginal read as anal (PPA FutasUseAnus), pool " + pool)
+		return pool
+	EndIf
+	return tagPool
 EndFunction
 
 float Function GetInflation(Actor a)

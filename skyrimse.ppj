@@ -42,6 +42,8 @@
         <Import>.\dependencies\racemenu\scripts\source</Import>
         <Import>.\dependencies\MfgFix NG\source\scripts</Import>
         <Import>.\dependencies\SLIF</Import>
+        <Import>.\dependencies\PPAPapyrusBridge</Import>
+        <Import>.\dependencies\SexLabPPlus-stubs</Import>
         <Import>C:\SteamLibrary\steamapps\common\Skyrim Special Edition\Data\Source\Scripts</Import>
     </Imports>
     <Folders>
