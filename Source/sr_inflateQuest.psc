@@ -618,11 +618,11 @@ event FHUSexlabEnd(int tid, bool HasPlayer)
 	elseif anim.hasTag("Anal")
 		endPool = ANAL
 	endif
-	; what PPA confirmed in the victim over the scene's last minute beats the tags
+	; the last site PPA confirmed in the victim (within the scene's last minute) beats the tags
 	bool ppa = PPAAvailable()
 	int site = 0
 	If ppa
-		site = PPABridge.GetSiteMask(Victim, None, 60.0)
+		site = PPABridge.GetLastSite(Victim, None, 60.0)
 	EndIf
 	If Math.LogicalAnd(site, 4)
 		endPool = VAGINAL
@@ -3615,7 +3615,14 @@ int Function ResolvePool(Actor akReceiver, Actor akGiver, int tagPool, bool ppa)
 	If !ppa
 		return tagPool
 	EndIf
-	int site = PPABridge.GetLastSite(akReceiver, akGiver, 10.0) ; 1 mouth, 2 anus, 4 vagina, 6 both
+	; 1 mouth, 2 anus, 4 vagina, 6 both. One giver: where it was last. Any partner: every
+	; site confirmed in the last 10s (several partners can be in different holes).
+	int site
+	If akGiver
+		site = PPABridge.GetLastSite(akReceiver, akGiver, 10.0)
+	Else
+		site = PPABridge.GetSiteMask(akReceiver, None, 10.0)
+	EndIf
 	int pool = 0
 	If Math.LogicalAnd(site, 4)
 		pool = Math.LogicalOr(pool, VAGINAL)
