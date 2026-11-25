@@ -454,17 +454,34 @@ Function ApplyConfig()
 	RegisterKeys()
 EndFunction
 
+; OnGameReload also runs inside OnInit. Papyrus blocks every call into this script
+; until OnInit returns, so calling into sr_inflateQuest from here could deadlock with
+; a quest stack waiting on config (GetInflationPercentage reads config.maxInflation).
+; Calls into other quests now run from OnUpdate, after OnInit has finished.
+bool pendingReset = false
+bool pendingRestartQuest = false
+bool pendingResetCumAmounts = false
+int pendingVersion = 0
+
 Event OnGameReload()
 	parent.OnGameReload()
 	RegisterKeys()
 	VerifyMods()
+	PageReset()
+	RegisterForSingleUpdate(1.0)
+EndEvent
+
+Event OnUpdate()
+	If pendingReset
+		pendingReset = false
+		resetConfig(restartQuest = pendingRestartQuest, resetCumAmounts = pendingResetCumAmounts)
+		inflater.log("Updated to " + inflater.GetVersion() + " (" + pendingVersion +")")
+	EndIf
 	If runCount < 2
-		Utility.Wait(1.0)
 		eventManager.RegisterAllEvents()
 		runCount += 1
 	EndIf
 	inflater.maintenance()
-	PageReset()
 EndEvent
 
 Function RegisterKeys()
@@ -554,13 +571,11 @@ EndFunction
 
 Event OnVersionUpdate(int newVersion)
 	If newVersion != currentVersion
-		If currentVersion == 0
-			resetConfig(restartQuest = false, resetCumAmounts = true)
-		Else
-			resetConfig(restartQuest = true, resetCumAmounts = false)
-		EndIf
-		
-		inflater.log("Updated to " + inflater.GetVersion() + " (" + newVersion +")")
+		; Deferred to OnUpdate (see OnGameReload): this runs inside OnInit.
+		pendingReset = true
+		pendingRestartQuest = currentVersion != 0
+		pendingResetCumAmounts = currentVersion == 0
+		pendingVersion = newVersion
 	EndIf
 	;debug.Notification("Fill Her Up Update from " + CurrentVersion + " to " + newVersion)
 EndEvent
