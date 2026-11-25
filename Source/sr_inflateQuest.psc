@@ -3620,10 +3620,21 @@ EndFunction
 ; 3. PPA's FutasUseAnus rule: a SexLab P+ futa's "vaginal" is anal
 ; 4. the tags
 int Function ResolvePool(Actor akReceiver, Actor akGiver, Actor[] akSceneActors, int tagPool, bool ppa)
+	String who = akReceiver.GetLeveledActorBase().GetName()
+	int pool = PPAPool(akReceiver, akGiver, akSceneActors, tagPool, ppa, who)
+	; a body without a vagina can't take a vaginal load, whatever the tags or PPA say
+	If Math.LogicalAnd(pool, VAGINAL) && HasNoVagina(akReceiver, ppa)
+		pool = Math.LogicalOr(pool - VAGINAL, ANAL)
+		Debug.Trace("[FillHerUp] " + who + ": no vagina (penis skin / TNG futa), vaginal read as anal -> pool " + pool)
+	EndIf
+	return pool
+EndFunction
+
+; PPA's view of which hole(s) this receiver took, else the tag pool
+int Function PPAPool(Actor akReceiver, Actor akGiver, Actor[] akSceneActors, int tagPool, bool ppa, String who)
 	If !ppa
 		return tagPool
 	EndIf
-	String who = akReceiver.GetLeveledActorBase().GetName()
 	; SexLab orgasm/end events can reach us minutes late when this script is busy
 	; inflating someone, so look back far - but only at this scene's own partners
 	; (the giver when known, else every other actor in the scene), so an older scene
@@ -3655,23 +3666,28 @@ int Function ResolvePool(Actor akReceiver, Actor akGiver, Actor[] akSceneActors,
 		Debug.Trace("[FillHerUp] " + who + ": PPA assigned site " + assigned + " -> pool " + pool + " (tags " + tagPool + ")")
 		return pool
 	EndIf
-	If Math.LogicalAnd(tagPool, VAGINAL)
-		; PPA never touched this scene (some creatures). If, in the last 10 minutes, PPA
-		; has put partners in this receiver's anus but never her vagina, she has none
-		int history = PPABridge.GetSiteMask(akReceiver, None, 600.0)
-		If Math.LogicalAnd(history, 2) && !Math.LogicalAnd(history, 4)
-			pool = Math.LogicalOr(tagPool - VAGINAL, ANAL)
-			Debug.Trace("[FillHerUp] " + who + ": no PPA data for this scene, recent PPA history anal-only (" + history + "), vaginal read as anal -> pool " + pool)
-			return pool
-		EndIf
-		If PPABridge.FutasUseAnus() && IsFuta(akReceiver)
-			pool = Math.LogicalOr(tagPool - VAGINAL, ANAL)
-			Debug.Trace("[FillHerUp] " + who + ": futa, vaginal read as anal (PPA FutasUseAnus) -> pool " + pool)
-			return pool
-		EndIf
-	EndIf
 	Debug.Trace("[FillHerUp] " + who + ": nothing from PPA (site " + site + ", assigned " + assigned + "), tags -> pool " + tagPool)
 	return tagPool
+EndFunction
+
+; True for a skin tagged TNG_SkinWithPenis (vaginaless / futa skins), an actor TNG gave
+; a penis (TNG_Gentlewoman), or a P+ futa when PPA is set to send futas to the anus
+bool Function HasNoVagina(Actor a, bool ppa)
+	Keyword skinKw = Keyword.GetKeyword("TNG_SkinWithPenis")
+	If skinKw
+		Armor skin = a.GetLeveledActorBase().GetSkin()
+		If !skin
+			skin = a.GetRace().GetSkin()
+		EndIf
+		If skin && skin.HasKeyword(skinKw)
+			return true
+		EndIf
+	EndIf
+	Keyword tngFuta = Keyword.GetKeyword("TNG_Gentlewoman")
+	If tngFuta && a.HasKeyword(tngFuta)
+		return true
+	EndIf
+	return ppa && PPABridge.FutasUseAnus() && IsFuta(a)
 EndFunction
 
 float Function GetInflation(Actor a)
